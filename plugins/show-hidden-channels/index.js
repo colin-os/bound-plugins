@@ -1,7 +1,8 @@
 import { after, before } from "@vendetta/patcher";
-import { findByProps, findByStoreName } from "@vendetta/metro";
+import { findByProps, findByName, findByStoreName } from "@vendetta/metro";
 import { getAssetIDByName } from "@vendetta/ui/assets";
 import { showToast } from "@vendetta/ui/toasts";
+import { ReactNative as RN } from "@vendetta/metro/common";
 
 let patches = [];
 let hiddenChannelIds = new Set();
@@ -53,6 +54,49 @@ export default {
                     
                     return ret;
                 }));
+            }
+            
+            // Patch channel list item rendering to add lock icon
+            try {
+                const ChannelItem = findByName("ChannelItem", false) || findByName("Channel", false);
+                if (ChannelItem) {
+                    patches.push(after("default", ChannelItem, (args, ret) => {
+                        try {
+                            const channel = args?.[0]?.channel;
+                            if (channel?.id && isChannelHidden(channel.id) && ret) {
+                                // Try to find and modify the channel name text
+                                const findTextInChildren = (children) => {
+                                    if (!children) return;
+                                    
+                                    if (Array.isArray(children)) {
+                                        for (let i = 0; i < children.length; i++) {
+                                            if (typeof children[i] === 'string' && children[i] === channel.name) {
+                                                children[i] = `🔒 ${children[i]}`;
+                                                return true;
+                                            }
+                                            if (children[i]?.props?.children) {
+                                                if (findTextInChildren(children[i].props.children)) return true;
+                                            }
+                                        }
+                                    } else if (typeof children === 'string' && children === channel.name) {
+                                        return `🔒 ${children}`;
+                                    } else if (children?.props?.children) {
+                                        return findTextInChildren(children.props.children);
+                                    }
+                                };
+                                
+                                if (ret.props?.children) {
+                                    findTextInChildren(ret.props.children);
+                                }
+                            }
+                        } catch (e) {
+                            // Silently fail if we can't patch this specific render
+                        }
+                        return ret;
+                    }));
+                }
+            } catch (e) {
+                console.log("Could not patch channel rendering:", e);
             }
             
             // Clear notification badges for hidden channels
@@ -124,7 +168,7 @@ export default {
                 }));
             }
             
-            showToast("Show Hidden Channels enabled!", getAssetIDByName("ic_eye_show"));
+            // No startup toast - silent enable
         } catch (error) {
             showToast("Failed to load Show Hidden Channels: " + error.message, getAssetIDByName("ic_close_circle"));
             console.error("Show Hidden Channels error:", error);
@@ -139,6 +183,6 @@ export default {
         patches = [];
         hiddenChannelIds.clear();
         
-        showToast("Show Hidden Channels disabled", getAssetIDByName("ic_eye_hide"));
+        // No toast on unload either
     }
 };
