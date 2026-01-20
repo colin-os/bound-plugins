@@ -1,0 +1,14 @@
+{
+  "name": "Show Hidden Channels",
+  "description": "Reveals hidden Discord channels in servers, allowing you to see channels you don't have access to",
+  "authors": [
+    {
+      "name": "colin-os",
+      "id": "210073666"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "ic_eye_show"
+  }
+}
