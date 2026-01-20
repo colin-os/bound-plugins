@@ -62,13 +62,5 @@ export default {
             type: "CHANNEL_SELECT",
             channelId: null
         });
-    },
-    settings: {
-        enabled: {
-            type: "boolean",
-            default: true,
-            title: "Show Hidden Channels",
-            description: "Toggle visibility of hidden channels"
-        }
     }
 };
