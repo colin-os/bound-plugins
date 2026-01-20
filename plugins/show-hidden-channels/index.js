@@ -55,23 +55,6 @@ export default {
                 }));
             }
             
-            // Add lock icon to channel names
-            if (ChannelStore?.getChannel) {
-                patches.push(after("getChannel", ChannelStore, (args, ret) => {
-                    if (ret && ret.id && isChannelHidden(ret.id)) {
-                        // Add lock emoji to channel name if not already added
-                        if (!ret.name?.startsWith("🔒 ")) {
-                            return {
-                                ...ret,
-                                name: `🔒 ${ret.name}`,
-                                originalName: ret.name
-                            };
-                        }
-                    }
-                    return ret;
-                }));
-            }
-            
             // Clear notification badges for hidden channels
             if (ReadStateStore) {
                 // Patch getMentionCount to return 0 for hidden channels
@@ -141,7 +124,7 @@ export default {
                 }));
             }
             
-            showToast("Show Hidden Channels enabled! 🔒", getAssetIDByName("ic_eye_show"));
+            showToast("Show Hidden Channels enabled!", getAssetIDByName("ic_eye_show"));
         } catch (error) {
             showToast("Failed to load Show Hidden Channels: " + error.message, getAssetIDByName("ic_close_circle"));
             console.error("Show Hidden Channels error:", error);
