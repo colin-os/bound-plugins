@@ -7,7 +7,7 @@
       "id": "210073666"
     }
   ],
-  "main": "index.js",
+  "main": "index.jsx",
   "vendetta": {
     "icon": "ic_webhook"
   }
