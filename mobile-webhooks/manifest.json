@@ -1,0 +1,1 @@
+{"name":"Mobile Webhooks","description":"Enables webhook creation and management on Discord mobile, bringing desktop functionality to your phone","authors":[{"name":"colin-os","id":"210073666"}],"main":"index.js","vendetta":{"icon":"ic_webhook"},"hash":"2a25cd20e44055758977431faeed4928c2151dd872813d7c38ce89b6d9238133"}
