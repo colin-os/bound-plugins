@@ -1,0 +1,13 @@
+{
+  "name": "Typing Avatars",
+  "description": "Shows user avatars when typing instead of text. Tap avatars to see who's typing. Includes size, animation, and style options.",
+  "authors": [
+    {
+      "name": "colin"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "ic_message_edit"
+  }
+}
