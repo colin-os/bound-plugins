@@ -1,8 +1,8 @@
 import { after, before } from "@vendetta/patcher";
-import { findByProps, findByName, findByStoreName } from "@vendetta/metro";
+import { findByProps, findByName, findByStoreName, findByDisplayName } from "@vendetta/metro";
 import { getAssetIDByName } from "@vendetta/ui/assets";
 import { showToast } from "@vendetta/ui/toasts";
-import { ReactNative as RN } from "@vendetta/metro/common";
+import { React } from "@vendetta/metro/common";
 
 let patches = [];
 let hiddenChannelIds = new Set();
@@ -13,6 +13,55 @@ const CONNECT = 1048576n;
 // Track which channels are actually hidden
 function isChannelHidden(channelId) {
     return hiddenChannelIds.has(channelId);
+}
+
+// Deep search for text to modify
+function patchTextInElement(element, channelName) {
+    if (!element) return element;
+    
+    try {
+        // Direct string check
+        if (typeof element === 'string') {
+            if (element === channelName || element.includes(channelName)) {
+                return `🔒 ${element}`;
+            }
+            return element;
+        }
+        
+        // Check if it's a React element
+        if (element?.props) {
+            const newProps = { ...element.props };
+            
+            // Check children
+            if (newProps.children) {
+                if (typeof newProps.children === 'string') {
+                    if (newProps.children === channelName || newProps.children.includes(channelName)) {
+                        newProps.children = `🔒 ${newProps.children}`;
+                    }
+                } else if (Array.isArray(newProps.children)) {
+                    newProps.children = newProps.children.map(child => patchTextInElement(child, channelName));
+                } else {
+                    newProps.children = patchTextInElement(newProps.children, channelName);
+                }
+            }
+            
+            // Check text prop specifically
+            if (typeof newProps.text === 'string' && newProps.text === channelName) {
+                newProps.text = `🔒 ${newProps.text}`;
+            }
+            
+            return React.cloneElement(element, newProps);
+        }
+        
+        // Array of elements
+        if (Array.isArray(element)) {
+            return element.map(el => patchTextInElement(el, channelName));
+        }
+    } catch (e) {
+        // Return original if patching fails
+    }
+    
+    return element;
 }
 
 export default {
@@ -56,52 +105,77 @@ export default {
                 }));
             }
             
-            // Patch channel list item rendering to add lock icon
-            try {
-                const ChannelItem = findByName("ChannelItem", false) || findByName("Channel", false);
-                if (ChannelItem) {
-                    patches.push(after("default", ChannelItem, (args, ret) => {
-                        try {
-                            const channel = args?.[0]?.channel;
-                            if (channel?.id && isChannelHidden(channel.id) && ret) {
-                                // Try to find and modify the channel name text
-                                const findTextInChildren = (children) => {
-                                    if (!children) return;
-                                    
-                                    if (Array.isArray(children)) {
-                                        for (let i = 0; i < children.length; i++) {
-                                            if (typeof children[i] === 'string' && children[i] === channel.name) {
-                                                children[i] = `🔒 ${children[i]}`;
-                                                return true;
-                                            }
-                                            if (children[i]?.props?.children) {
-                                                if (findTextInChildren(children[i].props.children)) return true;
-                                            }
-                                        }
-                                    } else if (typeof children === 'string' && children === channel.name) {
-                                        return `🔒 ${children}`;
-                                    } else if (children?.props?.children) {
-                                        return findTextInChildren(children.props.children);
+            // Try multiple component patching strategies
+            const componentNames = [
+                "ChannelItem",
+                "Channel", 
+                "ChannelListItem",
+                "GuildChannel",
+                "VoiceChannel",
+                "TextChannel"
+            ];
+            
+            for (const componentName of componentNames) {
+                try {
+                    const Component = findByDisplayName(componentName, false) || findByName(componentName, false);
+                    if (Component?.default || Component?.type || Component) {
+                        const target = Component.default || Component.type || Component;
+                        
+                        patches.push(after("render", target.prototype || target, function(args, ret) {
+                            try {
+                                const channel = this?.props?.channel || args?.[0]?.channel;
+                                if (channel?.id && channel?.name && isChannelHidden(channel.id)) {
+                                    return patchTextInElement(ret, channel.name);
+                                }
+                            } catch (e) {}
+                            return ret;
+                        }));
+                        
+                        // Also try patching default export
+                        if (target.default) {
+                            patches.push(after("default", Component, (args, ret) => {
+                                try {
+                                    const channel = args?.[0]?.channel;
+                                    if (channel?.id && channel?.name && isChannelHidden(channel.id)) {
+                                        return patchTextInElement(ret, channel.name);
                                     }
-                                };
-                                
-                                if (ret.props?.children) {
-                                    findTextInChildren(ret.props.children);
+                                } catch (e) {}
+                                return ret;
+                            }));
+                        }
+                    }
+                } catch (e) {
+                    // Continue to next component
+                }
+            }
+            
+            // Try patching Text component directly
+            try {
+                const Text = findByDisplayName("Text", false);
+                if (Text) {
+                    patches.push(after("render", Text.prototype, function(args, ret) {
+                        try {
+                            const text = this?.props?.children || this?.props?.text;
+                            if (typeof text === 'string') {
+                                // Check if this text matches any hidden channel
+                                for (const channelId of hiddenChannelIds) {
+                                    const channel = ChannelStore?.getChannel(channelId);
+                                    if (channel?.name === text && !text.startsWith('🔒')) {
+                                        if (ret?.props) {
+                                            ret.props.children = `🔒 ${text}`;
+                                        }
+                                        return ret;
+                                    }
                                 }
                             }
-                        } catch (e) {
-                            // Silently fail if we can't patch this specific render
-                        }
+                        } catch (e) {}
                         return ret;
                     }));
                 }
-            } catch (e) {
-                console.log("Could not patch channel rendering:", e);
-            }
+            } catch (e) {}
             
             // Clear notification badges for hidden channels
             if (ReadStateStore) {
-                // Patch getMentionCount to return 0 for hidden channels
                 if (ReadStateStore.getMentionCount) {
                     patches.push(after("getMentionCount", ReadStateStore, (args, ret) => {
                         const channelId = args[0];
@@ -112,7 +186,6 @@ export default {
                     }));
                 }
                 
-                // Patch getUnreadCount to return 0 for hidden channels
                 if (ReadStateStore.getUnreadCount) {
                     patches.push(after("getUnreadCount", ReadStateStore, (args, ret) => {
                         const channelId = args[0];
@@ -123,7 +196,6 @@ export default {
                     }));
                 }
                 
-                // Patch hasUnread to return false for hidden channels
                 if (ReadStateStore.hasUnread) {
                     patches.push(after("hasUnread", ReadStateStore, (args, ret) => {
                         const channelId = args[0];
@@ -134,7 +206,6 @@ export default {
                     }));
                 }
                 
-                // Patch hasRelevantUnread to return false for hidden channels
                 if (ReadStateStore.hasRelevantUnread) {
                     patches.push(after("hasRelevantUnread", ReadStateStore, (args, ret) => {
                         const channelId = args[0];
@@ -168,7 +239,6 @@ export default {
                 }));
             }
             
-            // No startup toast - silent enable
         } catch (error) {
             showToast("Failed to load Show Hidden Channels: " + error.message, getAssetIDByName("ic_close_circle"));
             console.error("Show Hidden Channels error:", error);
@@ -176,13 +246,10 @@ export default {
     },
     
     onUnload: () => {
-        // Remove all patches
         for (const unpatch of patches) {
             unpatch?.();
         }
         patches = [];
         hiddenChannelIds.clear();
-        
-        // No toast on unload either
     }
 };
