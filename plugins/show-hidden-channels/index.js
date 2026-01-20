@@ -89,34 +89,17 @@ export default {
                         return ret;
                     }));
                 }
-            }
-            
-            // Add lock icon to hidden channels
-            const Channel = findByProps("ChannelRecordBase") || findByProps("Channel");
-            if (Channel) {
-                // Patch channel icon to show lock for hidden channels
-                patches.push(after("getChannelIconURL", Channel, (args, ret) => {
-                    const channel = args[0];
-                    if (channel?.id && isChannelHidden(channel.id)) {
-                        return "lock"; // This will display a lock icon
-                    }
-                    return ret;
-                }));
-            }
-            
-            // Patch channel rendering to add lock indicator
-            const ChannelItem = findByProps("ChannelItem");
-            if (ChannelItem) {
-                patches.push(after("ChannelItem", ChannelItem, (args, ret) => {
-                    const channel = args[0]?.channel;
-                    if (channel?.id && isChannelHidden(channel.id)) {
-                        // Add visual indicator that this is a hidden channel
-                        if (ret?.props) {
-                            ret.props.locked = true;
+                
+                // Patch hasRelevantUnread to return false for hidden channels
+                if (ReadStateStore.hasRelevantUnread) {
+                    patches.push(after("hasRelevantUnread", ReadStateStore, (args, ret) => {
+                        const channelId = args[0];
+                        if (isChannelHidden(channelId)) {
+                            return false;
                         }
-                    }
-                    return ret;
-                }));
+                        return ret;
+                    }));
+                }
             }
             
             // Patch canBasicChannel to allow viewing
