@@ -2,23 +2,12 @@ import { findByName, findByProps, findByStoreName } from "@vendetta/metro";
 import { constants, React, stylesheet } from "@vendetta/metro/common";
 import { instead, after } from "@vendetta/patcher";
 import { semanticColors } from '@vendetta/ui';
+import { showToast } from "@vendetta/ui/toasts";
 import { getAssetIDByName } from "@vendetta/ui/assets";
 
 let patches = [];
-
-const Permissions = findByProps("getChannelPermissions", "can");
-const Router = findByProps("transitionToGuild");
-const Fetcher = findByProps("stores", "fetchMessages");
-const { ChannelTypes } = findByProps("ChannelTypes");
-const ChannelStore = findByStoreName("ChannelStore");
-const ReadStateStore = findByStoreName("ReadStateStore");
-const { View, Text } = findByProps("Button", "Text", "View");
-
-const skipChannels = [
-    ChannelTypes.DM, 
-    ChannelTypes.GROUP_DM, 
-    ChannelTypes.GUILD_CATEGORY
-];
+let Permissions, Router, Fetcher, ChannelTypes, ChannelStore, ReadStateStore, View, Text;
+let skipChannels = [];
 
 const MessageStyles = stylesheet.createThemedStyleSheet({
     'container': {
@@ -64,66 +53,99 @@ function isHidden(channel) {
 
 export default {
     onLoad: () => {
-        const MessagesConnected = findByName("MessagesWrapperConnected", false);
-        
-        // Allow viewing hidden channels in the list
-        patches.push(after("can", Permissions, ([permID, channel], res) => {
-            if (!channel?.realCheck && permID === constants.Permissions.VIEW_CHANNEL) return true;
-            return res;
-        }));
-
-        // Prevent navigating to hidden channels
-        patches.push(instead("transitionToGuild", Router, (args, orig) => {
-            const [_, channel] = args;
-            if (!isHidden(channel) && typeof orig === "function") orig(args);
-        }));
-
-        // Prevent fetching messages for hidden channels
-        patches.push(instead("fetchMessages", Fetcher, (args, orig) => {
-            const [channel] = args;
-            if (!isHidden(channel) && typeof orig === "function") orig(args);
-        }));
-
-        // Show custom view instead of messages for hidden channels
-        patches.push(instead("default", MessagesConnected, (args, orig) => {
-            const channel = args[0]?.channel;
-            if (!isHidden(channel) && typeof orig === "function") return orig(...args);
-            else return React.createElement(HiddenChannelView, {channel});
-        }));
-
-        // Clear notification badges for hidden channels
-        if (ReadStateStore) {
-            if (ReadStateStore.getMentionCount) {
-                patches.push(after("getMentionCount", ReadStateStore, (args, ret) => {
-                    const channelId = args[0];
-                    if (isHidden(channelId)) return 0;
-                    return ret;
-                }));
+        try {
+            // Load all modules inside onLoad
+            Permissions = findByProps("getChannelPermissions", "can");
+            Router = findByProps("transitionToGuild");
+            Fetcher = findByProps("stores", "fetchMessages");
+            const ChannelTypesModule = findByProps("ChannelTypes");
+            ChannelTypes = ChannelTypesModule?.ChannelTypes;
+            ChannelStore = findByStoreName("ChannelStore");
+            ReadStateStore = findByStoreName("ReadStateStore");
+            const ViewModule = findByProps("Button", "Text", "View");
+            View = ViewModule?.View;
+            Text = ViewModule?.Text;
+            
+            skipChannels = [
+                ChannelTypes?.DM, 
+                ChannelTypes?.GROUP_DM, 
+                ChannelTypes?.GUILD_CATEGORY
+            ].filter(Boolean);
+            
+            const MessagesConnected = findByName("MessagesWrapperConnected", false);
+            
+            if (!Permissions || !ChannelStore) {
+                throw new Error("Failed to find required modules");
             }
             
-            if (ReadStateStore.getUnreadCount) {
-                patches.push(after("getUnreadCount", ReadStateStore, (args, ret) => {
-                    const channelId = args[0];
-                    if (isHidden(channelId)) return 0;
-                    return ret;
+            // Allow viewing hidden channels in the list
+            patches.push(after("can", Permissions, ([permID, channel], res) => {
+                if (!channel?.realCheck && permID === constants.Permissions.VIEW_CHANNEL) return true;
+                return res;
+            }));
+
+            // Prevent navigating to hidden channels
+            if (Router?.transitionToGuild) {
+                patches.push(instead("transitionToGuild", Router, (args, orig) => {
+                    const [_, channel] = args;
+                    if (!isHidden(channel) && typeof orig === "function") return orig(...args);
                 }));
             }
-            
-            if (ReadStateStore.hasUnread) {
-                patches.push(after("hasUnread", ReadStateStore, (args, ret) => {
-                    const channelId = args[0];
-                    if (isHidden(channelId)) return false;
-                    return ret;
+
+            // Prevent fetching messages for hidden channels
+            if (Fetcher?.fetchMessages) {
+                patches.push(instead("fetchMessages", Fetcher, (args, orig) => {
+                    const [channel] = args;
+                    if (!isHidden(channel) && typeof orig === "function") return orig(...args);
                 }));
             }
-            
-            if (ReadStateStore.hasRelevantUnread) {
-                patches.push(after("hasRelevantUnread", ReadStateStore, (args, ret) => {
-                    const channelId = args[0];
-                    if (isHidden(channelId)) return false;
-                    return ret;
+
+            // Show custom view instead of messages for hidden channels
+            if (MessagesConnected) {
+                patches.push(instead("default", MessagesConnected, (args, orig) => {
+                    const channel = args[0]?.channel;
+                    if (!isHidden(channel) && typeof orig === "function") return orig(...args);
+                    else return React.createElement(HiddenChannelView, {channel});
                 }));
             }
+
+            // Clear notification badges for hidden channels
+            if (ReadStateStore) {
+                if (ReadStateStore.getMentionCount) {
+                    patches.push(after("getMentionCount", ReadStateStore, (args, ret) => {
+                        const channelId = args[0];
+                        if (isHidden(channelId)) return 0;
+                        return ret;
+                    }));
+                }
+                
+                if (ReadStateStore.getUnreadCount) {
+                    patches.push(after("getUnreadCount", ReadStateStore, (args, ret) => {
+                        const channelId = args[0];
+                        if (isHidden(channelId)) return 0;
+                        return ret;
+                    }));
+                }
+                
+                if (ReadStateStore.hasUnread) {
+                    patches.push(after("hasUnread", ReadStateStore, (args, ret) => {
+                        const channelId = args[0];
+                        if (isHidden(channelId)) return false;
+                        return ret;
+                    }));
+                }
+                
+                if (ReadStateStore.hasRelevantUnread) {
+                    patches.push(after("hasRelevantUnread", ReadStateStore, (args, ret) => {
+                        const channelId = args[0];
+                        if (isHidden(channelId)) return false;
+                        return ret;
+                    }));
+                }
+            }
+        } catch (error) {
+            showToast("Show Hidden Channels failed: " + error.message, getAssetIDByName("ic_close_circle"));
+            console.error("Show Hidden Channels error:", error);
         }
     },
     
