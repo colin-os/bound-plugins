@@ -8,7 +8,6 @@ import { getAssetIDByName } from "@vendetta/ui/assets";
 let patches = [];
 let Permissions, Router, Fetcher, ChannelTypes, ChannelStore, ReadStateStore, View, Text;
 let skipChannels = [];
-let channelNameCache = new Map();
 
 const MessageStyles = stylesheet.createThemedStyleSheet({
     'container': {
@@ -33,7 +32,7 @@ const MessageStyles = stylesheet.createThemedStyleSheet({
 
 function HiddenChannelView({channel}) {
     return React.createElement(View, { style: MessageStyles.container },
-        React.createElement(Text, { style: MessageStyles.title }, `🔒 ${channel.name?.replace('🔒 ', '') || 'Hidden Channel'}`),
+        React.createElement(Text, { style: MessageStyles.title }, `🔒 ${channel.name || 'Hidden Channel'}`),
         React.createElement(Text, { style: MessageStyles.text }, 
             channel.topic ? `Topic: ${channel.topic}\n\n` : "",
             "You do not have access to view this channel."
@@ -43,8 +42,9 @@ function HiddenChannelView({channel}) {
 
 function isHidden(channel) {
     if (channel == undefined) return false;
-    if (typeof channel === 'string')
-        channel = ChannelStore?.getChannel(channel);
+    if (typeof channel === 'string') {
+        channel = ChannelStore?.getChannel?.__original?.(channel) || ChannelStore?.getChannel(channel);
+    }
     if (!channel || skipChannels.includes(channel.type)) return false;
     channel.realCheck = true;
     let res = !Permissions.can(constants.Permissions.VIEW_CHANNEL, channel);
@@ -83,30 +83,6 @@ export default {
             patches.push(after("can", Permissions, ([permID, channel], res) => {
                 if (!channel?.realCheck && permID === constants.Permissions.VIEW_CHANNEL) return true;
                 return res;
-            }));
-            
-            // Add lock icon to channel names in the list
-            patches.push(after("getChannel", ChannelStore, (args, channel) => {
-                if (!channel) return channel;
-                
-                // Check if this is a hidden channel
-                if (isHidden(channel)) {
-                    // Store original name if not already stored
-                    if (!channelNameCache.has(channel.id)) {
-                        channelNameCache.set(channel.id, channel.name);
-                    }
-                    
-                    // Return modified channel with lock icon
-                    const originalName = channelNameCache.get(channel.id);
-                    if (!originalName?.startsWith('🔒 ')) {
-                        return {
-                            ...channel,
-                            name: `🔒 ${originalName}`
-                        };
-                    }
-                }
-                
-                return channel;
             }));
 
             // Prevent navigating to hidden channels
@@ -179,6 +155,5 @@ export default {
             unpatch?.();
         }
         patches = [];
-        channelNameCache.clear();
     }
 };
